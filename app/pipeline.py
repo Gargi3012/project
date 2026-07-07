@@ -65,12 +65,14 @@ def build_pipeline_task(
     stt = DeepgramSTTService(
         api_key=settings.deepgram_api_key,
         live_options=LiveOptions(
-            model=settings.deepgram_model,
+            # nova-2-phonecall is tuned for 8 kHz telephony audio (Twilio)
+            model="nova-2-phonecall",
             language="en-US",
             smart_format=True,
             interim_results=True,
             endpointing=300,
-            vad_events=True,
+            # TwilioFrameSerializer.deserialize() calls ulaw_to_pcm() internally,
+            # so AudioRawFrame reaching Deepgram is already linear16 PCM — NOT mulaw.
             encoding="linear16",
             sample_rate=8000,
             channels=1,
@@ -109,7 +111,7 @@ def build_pipeline_task(
             context_aggregator.user(),     # append user turn to context
             llm,                           # text -> text (streamed)
             latency_logger,                # measures LLM-first-token -> TTS-first-byte
-            tts,                           # text -> audio (streamed)
+            #tts,                           # text -> audio (streamed)
             transport.output(),            # audio out to WebRTC/SIP
             context_aggregator.assistant(),  # append assistant turn to context
         ]

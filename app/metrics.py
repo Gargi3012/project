@@ -12,7 +12,9 @@ import time
 from loguru import logger
 
 from pipecat.frames.frames import (
+    AudioRawFrame,
     Frame,
+    InterimTranscriptionFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
     TextFrame,
@@ -43,7 +45,14 @@ class LatencyLoggerProcessor(FrameProcessor):
 
         now = time.monotonic()
 
-        if isinstance(frame, TranscriptionFrame):
+        if isinstance(frame, AudioRawFrame):
+            # Confirms audio is actually flowing through the pipeline
+            logger.debug(f"[{self.call_id}] AUDIO FRAME: {len(frame.audio)} bytes @ {frame.sample_rate}Hz")
+
+        elif isinstance(frame, InterimTranscriptionFrame):
+            logger.debug(f"[{self.call_id}] INTERIM: {frame.text!r}")
+
+        elif isinstance(frame, TranscriptionFrame):
             self._t_transcription = now
             logger.info(f"[{self.call_id}] USER SAID: {frame.text!r}")
 
