@@ -11,7 +11,14 @@ import time
 
 from loguru import logger
 
-from pipecat.frames.frames import Frame, LLMFullResponseStartFrame, TTSStartedFrame, TranscriptionFrame
+from pipecat.frames.frames import (
+    Frame,
+    LLMFullResponseEndFrame,
+    LLMFullResponseStartFrame,
+    TextFrame,
+    TTSStartedFrame,
+    TranscriptionFrame,
+)
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
 
@@ -38,12 +45,23 @@ class LatencyLoggerProcessor(FrameProcessor):
 
         if isinstance(frame, TranscriptionFrame):
             self._t_transcription = now
+            logger.info(f"[{self.call_id}] USER SAID: {frame.text!r}")
 
         elif isinstance(frame, LLMFullResponseStartFrame):
             self._t_llm_start = now
+            self._llm_response_text = ""
             if self._t_transcription:
                 delta_ms = (now - self._t_transcription) * 1000
                 logger.info(f"[{self.call_id}] stt_to_llm_ms={delta_ms:.0f}")
+
+        elif isinstance(frame, TextFrame):
+            # Streamed LLM text chunks — accumulate so we can log the full reply
+            if hasattr(self, "_llm_response_text"):
+                self._llm_response_text += frame.text
+
+        elif isinstance(frame, LLMFullResponseEndFrame):
+            if hasattr(self, "_llm_response_text"):
+                logger.info(f"[{self.call_id}] LLM REPLIED: {self._llm_response_text!r}")
 
         elif isinstance(frame, TTSStartedFrame):
             if self._t_llm_start:

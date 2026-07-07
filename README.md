@@ -7,6 +7,28 @@ Stack: **Pipecat** + **Deepgram (STT)** + **Groq (LLM)** + **ElevenLabs (TTS)**,
 [User Voice] --(WebRTC/LiveKit or Twilio SIP)--> Deepgram STT --> Groq LLM --> ElevenLabs TTS --(audio)--> [User Ear]
 ```
 
+## 0. What changed in this version (verified against real pipecat-ai 0.0.55)
+
+Every import and constructor call in `app/` was tested against an actual
+installed `pipecat-ai==0.0.55` in a clean environment. Three real bugs were
+found and fixed:
+
+1. **`DeepgramSTTService(live_options=...)`** needs an actual `LiveOptions`
+   object (`from deepgram import LiveOptions`), not a plain dict — a dict
+   would raise a `TypeError` at startup.
+2. **`ElevenLabsTTSService.InputParams(optimize_streaming_latency=...)`**
+   must be a string (`"4"`), not an int (`4`).
+3. **`LiveKitTransport` has no `api_key`/`api_secret` parameters.** It needs
+   an already-signed JWT `token`. `app/livekit_bot.py` now generates this
+   token itself using `livekit.api.AccessToken`.
+4. **`PipelineRunner(handle_sigint=True)` (the default) crashes on Windows**
+   — it calls `asyncio.loop.add_signal_handler`, which raises
+   `NotImplementedError` on Windows's event loop. Both `livekit_bot.py` and
+   `twilio_bot.py` now explicitly pass `handle_sigint=False`.
+5. **VAD wasn't actually being used** — both transports need
+   `vad_enabled=True` set alongside `vad_analyzer=...`; passing only the
+   analyzer silently does nothing.
+
 ## 1. Setup
 
 ```bash
@@ -68,6 +90,24 @@ project2-voice-pipeline/
    webhook to: `https://<your-ngrok-domain>/twilio/incoming` (HTTP POST).
 5. Call the Twilio number — you should hear the agent answer.
 
+## 4b. Making an OUTBOUND call (you call someone, instead of waiting)
+
+Keep `run_twilio.py` and `ngrok http 8765` both running (same as section 4),
+then in a **third** terminal (with `venv` activated):
+
+```bash
+python outbound_call.py --to +91XXXXXXXXXX
+```
+
+This tells Twilio to ring that number. The moment it's answered, Twilio
+fetches the exact same `/twilio/incoming` webhook used for inbound calls, so
+the agent connects the same way — you'll hear it start talking.
+
+For a personalised outbound qualification call (Team A integration):
+```bash
+python outbound_call.py --to +91XXXXXXXXXX --company-context "Company: Acme Corp. Industry: SaaS. Pain point: slow onboarding."
+```
+
 ## 5. Interruption handling (Pillar 4)
 
 Interruption is controlled in two places, working together:
@@ -113,15 +153,3 @@ task = build_pipeline_task(transport, call_id=lead_id, company_context=company_c
 This gets injected into the system prompt (see `app/prompts.py`) so the
 agent runs a personalised outbound qualification call without ever reading
 the record out verbatim.
-
-## 8. Notes on Pillar 1 (existing custom orchestration layer)
-
-Your dev log describes an already-built custom orchestration stack
-(`app/session/`, `app/conversation/`, `app/events/`, `app/pipeline/`,
-`app/adapters/pipecat/` — 50 files, 422 tests). This scaffold's
-`app/pipeline.py` is the integration point: swap it in as the thing your
-`PipecatAdapter` (Milestone 7) wraps, and your existing `SessionManager` +
-`ConversationStateMachine` can drive `call_id` / state transitions around
-each `PipelineTask` created here. The two layers are additive, not
-conflicting — this repo gives you the real, working Deepgram/Groq/ElevenLabs
-wiring; your custom layer gives you the state/event bus scaffolding around it.

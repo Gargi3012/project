@@ -6,15 +6,20 @@ Runs the voice agent as a participant inside a LiveKit room. A browser client
 and talks to this bot in real time.
 
 Usage:
-    python -m app.livekit_bot --room voice-agent-room --call-id demo-001
+    python run_livekit.py --room voice-agent-room --call-id demo-001
 
 For the Team A x Team B integration phase, pass --company-context with the
 extracted B2B record so the agent opens with a personalised pitch.
+
+NOTE: LiveKitTransport does NOT accept api_key/api_secret directly — it needs
+an already-signed JWT `token`. We generate that token here using livekit-api's
+AccessToken, which is the correct/verified approach for pipecat-ai 0.0.55.
 """
 
 import argparse
 import asyncio
 
+from livekit import api
 from loguru import logger
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.transports.services.livekit import LiveKitParams, LiveKitTransport
@@ -23,16 +28,29 @@ from app.config import settings
 from app.pipeline import build_pipeline_task, build_vad_analyzer
 
 
+def _generate_livekit_token(room_name: str, identity: str = "voice-agent-bot") -> str:
+    """Signs a short-lived JWT so our bot process can join the given room."""
+    token = (
+        api.AccessToken(settings.livekit_api_key, settings.livekit_api_secret)
+        .with_identity(identity)
+        .with_name("Voice Agent")
+        .with_grants(api.VideoGrants(room_join=True, room=room_name))
+        .to_jwt()
+    )
+    return token
+
+
 async def run_bot(room_name: str, call_id: str, company_context: str | None):
+    token = _generate_livekit_token(room_name)
+
     transport = LiveKitTransport(
         url=settings.livekit_url,
-        token=None,  # let the transport mint a bot token via api_key/api_secret below
+        token=token,
         room_name=room_name,
-        api_key=settings.livekit_api_key,
-        api_secret=settings.livekit_api_secret,
         params=LiveKitParams(
             audio_in_enabled=True,
             audio_out_enabled=True,
+            vad_enabled=True,           # required for vad_analyzer below to actually run
             vad_analyzer=build_vad_analyzer(),
             # Bot's own TTS output can be interrupted the instant user audio
             # crosses the VAD threshold above.
@@ -51,7 +69,11 @@ async def run_bot(room_name: str, call_id: str, company_context: str | None):
         logger.info(f"[{call_id}] Participant left: {participant.identity} — ending call")
         await task.cancel()
 
-    runner = PipelineRunner()
+    # handle_sigint=False: asyncio's add_signal_handler (used when True) is
+    # NOT implemented on Windows and raises NotImplementedError there. False
+    # works identically on Windows/macOS/Linux — Ctrl+C still works via the
+    # default KeyboardInterrupt path, we just don't get graceful shutdown.
+    runner = PipelineRunner(handle_sigint=False)
     await runner.run(task)
 
 
