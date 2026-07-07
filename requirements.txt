@@ -1,0 +1,23 @@
+# Core Pipecat framework with the vendor extras we need
+pipecat-ai[livekit,deepgram,groq,elevenlabs,silero]==0.0.55
+
+# Web server for Twilio webhook + WebSocket media stream
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+
+# Telephony
+twilio==9.3.2
+
+# LiveKit SDK (used internally by pipecat's LiveKit transport)
+# Version not strictly pinned here — pip will resolve a compatible version
+# automatically based on what pipecat-ai[livekit] requires.
+livekit
+livekit-api
+
+# Env management
+python-dotenv==1.0.1
+
+# Utilities
+loguru~=0.7.3
+pydantic>=2.10.5
+pydantic-settings>=2.7.0
