@@ -1,21 +1,3 @@
-"""
-Pillar 2 — Audio Ingestion & Transport (WebRTC Lead)
-
-Runs the voice agent as a participant inside a LiveKit room. A browser client
-(Daily/LiveKit prebuilt UI, or your own React mic widget) joins the same room
-and talks to this bot in real time.
-
-Usage:
-    python run_livekit.py --room voice-agent-room --call-id demo-001
-
-For the Team A x Team B integration phase, pass --company-context with the
-extracted B2B record so the agent opens with a personalised pitch.
-
-NOTE: LiveKitTransport does NOT accept api_key/api_secret directly — it needs
-an already-signed JWT `token`. We generate that token here using livekit-api's
-AccessToken, which is the correct/verified approach for pipecat-ai 0.0.55.
-"""
-
 import argparse
 import asyncio
 
@@ -50,7 +32,7 @@ async def run_bot(room_name: str, call_id: str, company_context: str | None):
         params=LiveKitParams(
             audio_in_enabled=True,
             audio_out_enabled=True,
-            vad_enabled=True,           # required for vad_analyzer below to actually run
+            vad_enabled=False,          # FIX: Disable VAD to prevent pipecat from calling finalize() on Deepgram
             vad_analyzer=build_vad_analyzer(),
             # Bot's own TTS output can be interrupted the instant user audio
             # crosses the VAD threshold above.
@@ -69,12 +51,13 @@ async def run_bot(room_name: str, call_id: str, company_context: str | None):
         logger.info(f"[{call_id}] Participant left: {participant.identity} — ending call")
         await task.cancel()
 
-    # handle_sigint=False: asyncio's add_signal_handler (used when True) is
-    # NOT implemented on Windows and raises NotImplementedError there. False
-    # works identically on Windows/macOS/Linux — Ctrl+C still works via the
-    # default KeyboardInterrupt path, we just don't get graceful shutdown.
     runner = PipelineRunner(handle_sigint=False)
-    await runner.run(task)
+    try:
+        await runner.run(task)
+    except asyncio.CancelledError:
+        pass
+    finally:
+        await task.cancel()
 
 
 def main():
