@@ -99,9 +99,7 @@ class FastAPIWebsocketOutputTransport(BaseOutputTransport):
             logger.debug(f"{self} caught TTSStoppedFrame, emitting BotStoppedSpeakingFrame upstream to un-mute user.")
             upstream_frame = BotStoppedSpeakingFrame()
             await self.push_frame(upstream_frame, FrameDirection.UPSTREAM)
-            # Optionally push downstream if needed, but upstream is what un-mutes the LLM aggregator.
-            downstream_frame = BotStoppedSpeakingFrame()
-            await self.push_frame(downstream_frame, FrameDirection.DOWNSTREAM)
+            return  # Prevent serializing and sending system frames to twilio!
             
         serialized = await self._params.serializer.serialize(frame)
         if serialized:
