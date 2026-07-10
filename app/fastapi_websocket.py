@@ -98,11 +98,9 @@ class FastAPIWebsocketOutputTransport(BaseOutputTransport):
         if isinstance(frame, TTSStoppedFrame):
             logger.debug(f"{self} caught TTSStoppedFrame, emitting BotStoppedSpeakingFrame upstream to un-mute user.")
             upstream_frame = BotStoppedSpeakingFrame()
-            upstream_frame.transport_destination = self._destination
             await self.push_frame(upstream_frame, FrameDirection.UPSTREAM)
             # Optionally push downstream if needed, but upstream is what un-mutes the LLM aggregator.
             downstream_frame = BotStoppedSpeakingFrame()
-            downstream_frame.transport_destination = self._destination
             await self.push_frame(downstream_frame, FrameDirection.DOWNSTREAM)
             
         serialized = await self._params.serializer.serialize(frame)
