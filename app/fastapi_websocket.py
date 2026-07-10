@@ -7,7 +7,8 @@ from dataclasses import dataclass
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.base_input import BaseInputTransport
 from pipecat.transports.base_output import BaseOutputTransport
-from pipecat.frames.frames import StartFrame, EndFrame, CancelFrame, Frame, InputAudioRawFrame
+from pipecat.frames.frames import StartFrame, EndFrame, CancelFrame, Frame, InputAudioRawFrame, TTSStoppedFrame, BotStoppedSpeakingFrame
+from pipecat.processors.frame_processor import FrameDirection
 from pipecat.serializers.base_serializer import FrameSerializer
 
 class FastAPIWebsocketParams(TransportParams):
@@ -41,6 +42,11 @@ class FastAPIWebsocketInputTransport(BaseInputTransport):
         await super().start(frame)
         await self._params.serializer.setup(frame)
         await self.set_transport_ready(frame)
+        if not hasattr(self, '_audio_in_queue'):
+            logger.warning(f"set_transport_ready failed to create _audio_in_queue! Force-creating.")
+            self._audio_in_queue = asyncio.Queue()
+            if not self._audio_task:
+                self._audio_task = self.create_task(self._audio_task_handler())
         if self._params.session_timeout:
             self._monitor_websocket_task = self.create_task(self._monitor_websocket())
         await self._callbacks.on_client_connected(self._websocket)
@@ -89,6 +95,16 @@ class FastAPIWebsocketOutputTransport(BaseOutputTransport):
         self._params = params
 
     async def _handle_frame(self, frame: Frame):
+        if isinstance(frame, TTSStoppedFrame):
+            logger.debug(f"{self} caught TTSStoppedFrame, emitting BotStoppedSpeakingFrame upstream to un-mute user.")
+            upstream_frame = BotStoppedSpeakingFrame()
+            upstream_frame.transport_destination = self._destination
+            await self.push_frame(upstream_frame, FrameDirection.UPSTREAM)
+            # Optionally push downstream if needed, but upstream is what un-mutes the LLM aggregator.
+            downstream_frame = BotStoppedSpeakingFrame()
+            downstream_frame.transport_destination = self._destination
+            await self.push_frame(downstream_frame, FrameDirection.DOWNSTREAM)
+            
         serialized = await self._params.serializer.serialize(frame)
         if serialized:
             is_binary = getattr(self._params.serializer, "is_binary", False) if self._params.serializer else False
